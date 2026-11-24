@@ -1,0 +1,25 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function roles() { return signedIn() && request.auth.token.roles is list ? request.auth.token.roles : []; }
+    function staff() { return signedIn() && roles().hasAny(['SUPER_ADMIN','ADMIN','FINANCE_OFFICER']); }
+    function safeProof() {
+      return request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)|application/pdf');
+    }
+    match /paymentProofs/{userId}/{paymentId}/{fileName} {
+      allow create: if signedIn() && request.auth.uid == userId && safeProof();
+      allow read: if signedIn() && (request.auth.uid == userId || staff());
+      allow update: if false;
+      allow delete: if staff();
+    }
+    match /userDocuments/{userId}/{allPaths=**} {
+      allow read: if signedIn() && (request.auth.uid == userId || staff());
+      allow create: if signedIn() && request.auth.uid == userId && request.resource.size < 10 * 1024 * 1024;
+      allow update, delete: if signedIn() && request.auth.uid == userId;
+    }
+    match /public/{allPaths=**} { allow read: if true; allow write: if signedIn() && roles().hasAny(['SUPER_ADMIN','ADMIN','CONTENT_MANAGER']); }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}
